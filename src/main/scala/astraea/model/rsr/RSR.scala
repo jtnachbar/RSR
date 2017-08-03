@@ -1,8 +1,11 @@
 package astraea.model.rsr
 
-import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.functions._
+import vegas._
+import vegas.sparkExt._
+import vegas.spec.Spec.MarkEnums.Rule
 
 import scala.io.Source
 
@@ -10,8 +13,8 @@ import scala.io.Source
   * Created by jnachbar on 8/1/17.
   */
 object RSR {
-  def expected_rsr(session: SparkSession, band: Int): Double = {
-
+  def expectedRSR(band: Int)(implicit session: SparkSession): (Double, DataFrame) = {
+    require(band > 0 && band < 8, "band number not in range")
     import session.implicits._
 
     val input = this.getClass.getResourceAsStream(s"/rsr.$band.inb.final.txt")
@@ -38,15 +41,41 @@ object RSR {
     //delta.select(avg("delta")).show //Calculates the average distance between the dataset's wavelengths
 
     //calculates the product of the graph
-    val lambda_c = delta.withColumn("product", delta("wavelength") * delta("rsr"))
+    val lambda_C = delta.withColumn("product", delta("wavelength") * delta("rsr"))
 
     //sums the products, giving me the integral
-    val wave_calc = lambda_c.agg(sum("product").alias("sum_product"),
+    val wave_calc = lambda_C.agg(sum("product").alias("sum_product"),
       sum("rsr").alias("sum_rsr"))
 
     //calculates the centroid by finding the average value
     val expected = wave_calc.withColumn("expected_wavelength", wave_calc("sum_product") / wave_calc("sum_rsr"))
-    expected.select("expected_wavelength").first().getDouble(0)
+
+    (expected.select("expected_wavelength").first().getDouble(0), lambda_C)
+      //.withColumn("expected_wavelength", expected("expected_wavelength")))
+  }
+
+  //attach "expected_wavelength" to the dataFrame that you output
+  //change plotRSR to utilize it
+  //plot it using encodeY2
+
+  def plotRSR(dfDouble: (Double, DataFrame)): Unit = {
+    require(dfDouble._1 > 300 && dfDouble._1 < 3000, "centroid is messed up")
+    val df = dfDouble._2
+    val plot = Vegas().withDataFrame(df.select("rsr", "wavelength").filter(row => row.getDouble(0) > 0))
+      //if the rsr value is < 0, don't plot it
+      //rsr on the y-axis
+      .encodeY("rsr", Quant, scale = Scale(domainValues = List(df.select("rsr").filter(row => row.getDouble(0) >= 0)
+        .agg(min("rsr")).first().getDouble(0), df.agg(max("rsr")).first().getDouble(0) + .5)))
+      //wavelength on the x axis
+      .encodeX("wavelength", Quant, scale = Scale(domainValues = List(df
+        .agg(min("wavelength")).first().getDouble(0), df.agg(max("wavelength")).first().getDouble(0))))
+      .mark(Area)
+
+
+      //.encodeY2("rsr", Quant, "mean")
+      //.encodeRow
+      //("expected_wavelength", Quant, enableBin = true)
+      plot.window.show
   }
 
 }
