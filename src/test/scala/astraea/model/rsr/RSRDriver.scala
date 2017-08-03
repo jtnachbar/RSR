@@ -3,6 +3,7 @@ package astraea.model.rsr
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.{SparkConf, SparkContext}
 import RSR._
+import astraea.viz.MultibandViz._
 /**
   * Created by jnachbar on 8/1/17.
   */
@@ -15,6 +16,7 @@ object RSRDriver {
       .appName("RSR")
       .getOrCreate()
 
+    //multibandViz("/Users/jnachbar/Downloads/MCD43A4.A2012009.h11v05.006.2016092174346_nbar_merged.tif", 100, 135)
     plotRSR(expectedRSR(3))
     //expectedRSR(6)._2.printSchema()
 

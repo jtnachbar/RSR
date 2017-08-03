@@ -12,6 +12,7 @@ import scala.io.Source
 /**
   * Created by jnachbar on 8/1/17.
   */
+
 object RSR {
   def expectedRSR(band: Int)(implicit session: SparkSession): (Double, DataFrame) = {
     require(band > 0 && band < 8, "band number not in range")
@@ -54,22 +55,19 @@ object RSR {
       //.withColumn("expected_wavelength", expected("expected_wavelength")))
   }
 
-  //attach "expected_wavelength" to the dataFrame that you output
-  //change plotRSR to utilize it
-  //plot it using encodeY2
-
   def plotRSR(dfDouble: (Double, DataFrame)): Unit = {
     require(dfDouble._1 > 300 && dfDouble._1 < 3000, "centroid is messed up")
     val df = dfDouble._2
-    val plot = Vegas().withDataFrame(df.select("rsr", "wavelength").filter(row => row.getDouble(0) > 0))
+    val plot = Vegas.layered("plots RSR vs Wavelength").withDataFrame(df.select("rsr", "wavelength").filter(row => row.getDouble(0) > 0))
       //if the rsr value is < 0, don't plot it
       //rsr on the y-axis
+      .withLayers(Layer()
       .encodeY("rsr", Quant, scale = Scale(domainValues = List(df.select("rsr").filter(row => row.getDouble(0) >= 0)
         .agg(min("rsr")).first().getDouble(0), df.agg(max("rsr")).first().getDouble(0) + .5)))
       //wavelength on the x axis
       .encodeX("wavelength", Quant, scale = Scale(domainValues = List(df
         .agg(min("wavelength")).first().getDouble(0), df.agg(max("wavelength")).first().getDouble(0))))
-      .mark(Area)
+      .mark(Area), Layer().encodeX(value = 475).encodeY(value = 1).encodeSize(value=100))
 
 
       //.encodeY2("rsr", Quant, "mean")

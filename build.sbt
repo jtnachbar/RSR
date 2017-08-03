@@ -1,3 +1,4 @@
+resolvers += Resolver.bintrayRepo("s22s", "maven")
 
 libraryDependencies ++= Seq(
   "org.apache.spark" %% "spark-core" % "2.1.0",
@@ -6,7 +7,8 @@ libraryDependencies ++= Seq(
   "org.locationtech.geotrellis" %% "geotrellis-raster" % "1.1.0",
   "org.locationtech.geotrellis" %% "geotrellis-spark" % "1.1.0",
   "org.vegas-viz" %% "vegas" % "0.3.9",
-  "org.vegas-viz" %% "vegas-spark" % "0.3.9"
+  "org.vegas-viz" %% "vegas-spark" % "0.3.9",
+  "io.astraea" %% "raster-frames" % "0.3.3"
 )
 
 lazy val root = (project in file(".")).
