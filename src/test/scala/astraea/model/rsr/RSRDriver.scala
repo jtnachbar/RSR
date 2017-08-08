@@ -16,13 +16,13 @@ object RSRDriver {
       .appName("RSR")
       .getOrCreate()
 
-    multibandViz("/Users/jnachbar/Downloads/MCD43A4.A2012009.h11v05.006.2016092174346_nbar_merged.tif", 0, 1)
+    multibandViz("/Users/jnachbar/Downloads/MCD43A4.A2012009.h11v05.006.2016092174346_nbar_merged.tif", 2, 1, 100, 35)
     //plotRSR(expectedRSR(3))
     //expectedRSR(6)._2.printSchema()
 
-//    for(i <- 1 until 2){
-//      assert(expectedRSR(i) < 3000, "value is too large")
-//      assert(expectedRSR(i) > 300, "value is too small")
+//    for(i <- 1 until 8){
+//      assert(expectedRSR(i)._1 < 3000, "value is too large")
+//      assert(expectedRSR(i)._1 > 300, "value is too small")
 //      println(expectedRSR(i))
 //    }
   }
