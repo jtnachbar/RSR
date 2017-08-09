@@ -20,8 +20,11 @@ import geotrellis.proj4.LatLng
 import geotrellis.spark.tiling.FloatingLayoutScheme
 import astraea.spark.rasterframes._
 import com.google.protobuf.struct.Struct
+import geotrellis.raster.io.geotiff.MultibandGeoTiff
 import geotrellis.vector._
 import vegas.Line
+import vegas.spec.Spec.MarkEnums.Rule
+import scala.io.Source
 
 
 //take tiles and make them dataframes
@@ -32,52 +35,75 @@ import vegas.Line
 
 object MultibandViz {
   def multibandViz(file: String, col1: Int, row1: Int, col2: Int, row2: Int)(implicit session: SparkSession): Unit = {
+    require(!(col1 == col2 && row1 == row2), "Pixels must be different")
+
     import session.implicits._
     rfInit(session.sqlContext)
-    val scene = session.sparkContext.hadoopMultibandGeoTiffRDD(file)
-    def makeRDD(band: Int): RDD[(ProjectedExtent, Tile)] = session.sparkContext.parallelize(Seq((scene.first()._1, scene.first._2.band(band))))
-    val red = makeRDD(0)
-    val green = makeRDD(1)
-    val blue = makeRDD(2)
+    val rsrInput = this.getClass.getResourceAsStream("/rsrVals.txt")
+    val rsrSeq = Source.fromInputStream(rsrInput).getLines.map(line => line.toDouble).toSeq
 
+    val scene = MultibandGeoTiff(file)
+    def makeRDD(band: Int): RDD[(ProjectedExtent, Tile)] = session.sparkContext.parallelize(Seq((scene.projectedExtent, scene.tile.band(band))))
+   // require(col1 < scene.first()._2.cols && col2 < scene.first()._2.cols && row1 < scene.first()._2.rows && row1 < scene.first()._2.rows)
+
+    val BAND_NUMBER = 7
     val GRID_SIZE = 20
+
+    val rddSeq = for(i <- 0 until BAND_NUMBER) yield {makeRDD(i)}
+
     val layout = FloatingLayoutScheme(GRID_SIZE, GRID_SIZE)
-    val layerMetadata = TileLayerMetadata.fromRdd(red, LatLng, layout)._2
+    val layerMetadata = TileLayerMetadata.fromRdd(rddSeq.head, LatLng, layout)._2
     def rddToDF(rdd: RDD[(ProjectedExtent, Tile)], str: String) =
-      ContextRDD(rdd.tileToLayout(layerMetadata), layerMetadata).toDF("Col Row", str)
-    val redDF = rddToDF(red, "Red"); val greenDF = rddToDF(green, "Green"); val blueDF = rddToDF(blue, "Blue")
-    val multiDF = redDF.join(greenDF, Seq("Col Row")).join(blueDF, Seq("Col Row"))
-      //.select("red Col Row", "Red", "Green", "Blue").withColumnRenamed("red Col Row", "Col Row")
-    val pxVals = multiDF.withColumn("bigCol", $"Col Row.col")
+      ContextRDD(rdd.tileToLayout(layerMetadata), layerMetadata).toDF("Col Row", str).repartition(50)
+
+
+    val dfSeq = rddSeq.zipWithIndex.map { case (rdd, index) => rddToDF(rdd, index.toString)
+      .filter($"Col Row.col" === col1 / GRID_SIZE && $"Col Row.row" === row1 / GRID_SIZE
+        || ($"Col Row.col" === col2 / GRID_SIZE && $"Col Row.row" === row2 / GRID_SIZE)) }
+    //combines with a recursive join
+    //try filtering here to reduce time
+    val bigDF = dfSeq.reduce((a, b) => a.join(b, Seq("Col Row")))
+    //expands the Col Row tuple and explodes the tiles into individual pixels
+    val pxVals = bigDF.withColumn("bigCol", $"Col Row.col")
       .withColumn("bigRow", $"Col Row.row")
-      .select($"bigCol", $"bigRow", explodeTiles($"Red", $"Green", $"Blue"))
+//      .filter($"bigCol" === col1 / GRID_SIZE && $"bigRow" === row1 / GRID_SIZE
+//      || ($"bigCol" === col2 / GRID_SIZE && $"bigRow" === row2 / GRID_SIZE))
+      .select($"bigCol", $"bigRow", explodeTiles($"0", $"1", $"2", $"3", $"4", $"5", $"6"))
 
-    val rgbSeq =
-      for(i <- 0 until 6)
-        yield { pxVals.filter((pxVals("bigCol") === col1 / GRID_SIZE && pxVals("bigRow") === row1 / GRID_SIZE
-          && pxVals("column") === col1 % GRID_SIZE && pxVals("row") === row1 % GRID_SIZE) || (pxVals("bigCol") === col2 / GRID_SIZE && pxVals("bigRow") === row2 / GRID_SIZE
-          && pxVals("column") === col2 % GRID_SIZE && pxVals("row") === row2 % GRID_SIZE))
-          .select("Red", "Green", "Blue").collect().apply(i / 3).getDouble(i % 3) }
+    //create a sequence of two pixels with 7 bands each
+    val rgbSeq = for(i <- 0 until 14)
+        yield { pxVals.filter((pxVals("column") === col1 % GRID_SIZE && pxVals("row") === row1 % GRID_SIZE) ||
+          (pxVals("column") === col2 % GRID_SIZE && pxVals("row") === row2 % GRID_SIZE))
+          .select("0", "1", "2", "3", "4", "5", "6").collect().apply(i / 7).getDouble(i % 7) }
 
-    println(rgbSeq.length)
+    println(rgbSeq.toString)
 
-    val plot = Vegas.layered("Measured Wavelength")
+    //plot the graphs of the two pixels vs. the expected wavelengths
+    val plot = Vegas.layered("Measured Wavelength").configCell(width = 300.0, height = 300.0)
       .withData(Seq(
-        Map("measured1" -> rgbSeq(0), "wavelength1" -> expectedRSR(1)._1),
-        Map("measured1" -> rgbSeq(1), "wavelength1" -> expectedRSR(3)._1),
-        Map("measured1" -> rgbSeq(2), "wavelength1" -> expectedRSR(4)._1),
-        Map("measured2" -> rgbSeq(3), "wavelength2" -> expectedRSR(1)._1),
-        Map("measured2" -> rgbSeq(4), "wavelength2" -> expectedRSR(3)._1),
-        Map("measured2" -> rgbSeq(5), "wavelength2" -> expectedRSR(4)._1)
-      )).withLayers(Layer().
-      mark(Line).
-      encodeX("wavelength1", Quant, scale = Scale(domainValues = List(400.0, 650.0))).
-    //add reduce functionality for the max
-      encodeY("measured1", Quant, scale = Scale(domainValues = List(0.0, rgbSeq.reduce(_ max _) + 400)))
-//      ,
-//      Layer().mark(Bar).
-//        encodeX("wavelength2", Quant).
-//        encodeY("measured2", Quant)
+        Map("number" -> "first", "measured1" -> rgbSeq(0), "wavelength1" -> rsrSeq(0)),
+        Map("number" -> "first", "measured1" -> rgbSeq(2), "wavelength1" -> rsrSeq(2)),
+        Map("number" -> "first", "measured1" -> rgbSeq(3), "wavelength1" -> rsrSeq(3)),
+        Map("number" -> "first", "measured1" -> rgbSeq(4), "wavelength1" -> rsrSeq(4)),
+        Map("number" -> "first", "measured1" -> rgbSeq(5), "wavelength1" -> rsrSeq(5)),
+        Map("number" -> "first", "measured1" -> rgbSeq(6), "wavelength1" -> rsrSeq(6)),
+        Map("number" -> "second", "measured1" -> rgbSeq(7), "wavelength1" -> rsrSeq(0)),
+        Map("number" -> "second", "measured1" -> rgbSeq(9), "wavelength1" -> rsrSeq(2)),
+        Map("number" -> "second", "measured1" -> rgbSeq(10), "wavelength1" -> rsrSeq(3)),
+        Map("number" -> "second", "measured1" -> rgbSeq(11), "wavelength1" -> rsrSeq(4)),
+        Map("number" -> "second", "measured1" -> rgbSeq(12), "wavelength1" -> rsrSeq(5)),
+        Map("number" -> "second", "measured1" -> rgbSeq(13), "wavelength1" -> rsrSeq(6))))
+      .withLayers(
+        Layer().
+          mark(vegas.Line)
+          .encodeX("wavelength1", Quant, scale = Scale(domainValues = List(expectedRSR(1)._1 - 50, expectedRSR(7)._1 + 50)))
+          .encodeY("measured1", Quant, scale = Scale(domainValues = List(0.0, rgbSeq.reduce(_ max _) + 400)))
+          .encodeColor("number", Nominal)
+          //.encodeY2("measured1", Quant, aggregate = AggOps.Max)
+
+//        Layer().mark(Line).
+//        //encodeX(field = "wavelength1", Quant).
+//          encodeY(field = "measured1", Quant, aggregate = AggOps.Min)
     )
     plot.window.show
   }

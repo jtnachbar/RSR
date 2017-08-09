@@ -13,8 +13,9 @@ import scala.io.Source
   * Created by jnachbar on 8/1/17.
   */
 
+//Re-examine this code because it spits out the wrong values
 object RSR {
-  def expectedRSR(band: Int)(implicit session: SparkSession): (Double, DataFrame) = {
+  def expectedRSR(band: Int)(implicit session: SparkSession): (Double, DataFrame, Int) = {
     require(band > 0 && band < 8, "band number not in range")
     import session.implicits._
 
@@ -31,7 +32,7 @@ object RSR {
       .toList
 
     //organizes this list into a dataset
-    val data = rows.toDF("band", "channel", "wavelength", "rsr").repartition(4)
+    val data = rows.toDF("band", "channel", "wavelength", "rsr").filter($"rsr" > 0).repartition(4)
 
     //creates a dataframe with a column that has been "lagged" by one
     val df = data.withColumn("lagged_column", lag($"wavelength", 1)
@@ -51,23 +52,24 @@ object RSR {
     //calculates the centroid by finding the average value
     val expected = wave_calc.withColumn("expected_wavelength", wave_calc("sum_product") / wave_calc("sum_rsr"))
 
-    (expected.select("expected_wavelength").first().getDouble(0), lambda_C)
+    (expected.select("expected_wavelength").first().getDouble(0), lambda_C, band)
       //.withColumn("expected_wavelength", expected("expected_wavelength")))
   }
 
-  def plotRSR(dfDouble: (Double, DataFrame)): Unit = {
+  def plotRSR(dfDouble: (Double, DataFrame, Int)): Unit = {
     require(dfDouble._1 > 300 && dfDouble._1 < 3000, "centroid is messed up")
     val df = dfDouble._2
+    val dfName = dfDouble._3
     val plot = Vegas.layered("plots RSR vs Wavelength").withDataFrame(df.select("rsr", "wavelength").filter(row => row.getDouble(0) > 0))
       //if the rsr value is < 0, don't plot it
       //rsr on the y-axis
       .withLayers(Layer()
       .encodeY("rsr", Quant, scale = Scale(domainValues = List(df.select("rsr").filter(row => row.getDouble(0) >= 0)
-        .agg(min("rsr")).first().getDouble(0), df.agg(max("rsr")).first().getDouble(0) + .5)))
+        .agg(min("rsr")).first().getDouble(0), df.agg(max("rsr")).first().getDouble(0) + .5)), axis = Axis(title = s"RSR(Band$dfName)"))
       //wavelength on the x axis
       .encodeX("wavelength", Quant, scale = Scale(domainValues = List(df
         .agg(min("wavelength")).first().getDouble(0), df.agg(max("wavelength")).first().getDouble(0))))
-      .mark(Area), Layer().encodeX(value = 475).encodeY(value = 1).encodeSize(value=100))
+      .mark(Area).configLegend("ahaha"))
 
 
       //.encodeY2("rsr", Quant, "mean")
