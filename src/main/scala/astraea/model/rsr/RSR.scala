@@ -5,7 +5,6 @@ import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.functions._
 import vegas._
 import vegas.sparkExt._
-import vegas.spec.Spec.MarkEnums.Rule
 
 import scala.io.Source
 

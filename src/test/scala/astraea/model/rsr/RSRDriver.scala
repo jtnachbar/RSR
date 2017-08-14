@@ -19,7 +19,7 @@ object RSRDriver {
       .appName("RSR")
       .getOrCreate()
 
-    multibandViz("/Users/jnachbar/Downloads/MCD43A4.A2012009.h11v05.006.2016092174346_nbar_merged.tif", 1000, 300, 300, 1000)
+    multibandViz("/Users/jnachbar/Downloads/MCD43A4.A2012009.h11v05.006.2016092174346_nbar_merged.tif", (1300, 1500), (1300, 1300), (100, 300), (300,100), (1000, 1000))
     //plotRSR(expectedRSR(3))
     //expectedRSR(6)._2.printSchema()
 
